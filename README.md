@@ -45,7 +45,7 @@ An existing `no_crowd_` copy is replaced. Each row has its own progress bar and 
 
 ## Build it yourself
 
-Pushing a tag like `v1.0.1` makes GitHub Actions build the Mac and Windows versions and attach both to a new release. You can also start the build from the Actions tab and download the results there.
+Every push makes GitHub Actions build the Mac and Windows versions; download them from the run on the Actions tab. A newer push to the same branch cancels the build still running for the older one. Pushing a tag like `v1.0.1` also attaches both builds to a new release.
 
 To build locally on a Mac, with [ffmpeg](https://ffmpeg.org/) and [mpv](https://mpv.io/) installed:
 

@@ -2,8 +2,13 @@ name: Build
 
 on:
   push:
+    branches: ["**"]
     tags: ["v*"]
   workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
