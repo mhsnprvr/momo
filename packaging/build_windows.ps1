@@ -12,11 +12,6 @@ function Invoke-Checked {
     if ($LASTEXITCODE -ne 0) { throw "$Command exited with code $LASTEXITCODE" }
 }
 
-Invoke-Checked $python @("-m", "pip", "install", "pyinstaller")
-Invoke-Checked $python @("packaging\fetch_model.py")
-Invoke-Checked $python @("-m", "PyInstaller", "packaging\MoMo.spec", "--noconfirm")
-
-$app = Join-Path $root "dist\MoMo"
 $downloads = Join-Path $root "build\tools"
 New-Item -ItemType Directory -Force -Path $downloads | Out-Null
 
@@ -38,14 +33,21 @@ function Get-Tool {
 
 $mpv = Get-Tool '^mpv-x86_64-\d{8}-git-[0-9a-f]+\.7z$' "mpv"
 $ffmpeg = Get-Tool '^ffmpeg-x86_64-git-[0-9a-f]+\.7z$' "ffmpeg"
+$ffmpegExe = Get-ChildItem $ffmpeg -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+if (-not $ffmpegExe) { throw "ffmpeg.exe was not found in the download" }
+$env:PATH = "$($ffmpegExe.DirectoryName);$env:PATH"
 
+Invoke-Checked $python @("-m", "pip", "install", "pyinstaller")
+Invoke-Checked $python @("packaging\fetch_model.py")
+Invoke-Checked $python @("-m", "PyInstaller", "packaging\MoMo.spec", "--noconfirm")
+
+$app = Join-Path $root "dist\MoMo"
 Copy-Item (Join-Path $mpv "mpv.exe") $app
 Get-ChildItem $mpv -Filter "*.dll" | Copy-Item -Destination $app
 foreach ($name in @("ffmpeg.exe", "ffprobe.exe")) {
     $found = Get-ChildItem $ffmpeg -Recurse -Filter $name | Select-Object -First 1
     if ($found) { Copy-Item $found.FullName $app }
 }
-if (-not (Test-Path (Join-Path $app "ffmpeg.exe"))) { throw "ffmpeg.exe was not found in the download" }
 
 $iscc = (Get-Command "iscc" -ErrorAction SilentlyContinue).Source
 if (-not $iscc) { $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe" }
