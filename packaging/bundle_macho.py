@@ -5,46 +5,74 @@ import shutil
 import subprocess
 import sys
 
+HOMEBREW_PREFIXES = ("/opt/homebrew", "/usr/local")
 
-def linked_libraries(path):
+
+def linked_libraries(path, origin):
+    """Return (name as linked, file on disk) for each Homebrew library that path loads."""
     output = subprocess.check_output(["otool", "-L", path], text=True)
     libraries = []
     for line in output.splitlines()[1:]:
         name = line.strip().split(" (")[0]
-        if name.startswith("/opt/homebrew/") or name.startswith("/usr/local/"):
-            libraries.append(name)
+        source = resolve(name, origin)
+        if source:
+            libraries.append((name, source))
     return libraries
 
 
-def copy_unsigned(source, destination):
+def resolve(name, origin):
+    if name.startswith(tuple(prefix + "/" for prefix in HOMEBREW_PREFIXES)):
+        return name
+    base = os.path.basename(name)
+    folders = {os.path.dirname(origin), os.path.dirname(os.path.realpath(origin))}
+    if name.startswith("@loader_path/"):
+        candidates = [os.path.join(folder, name[len("@loader_path/"):]) for folder in folders]
+    elif name.startswith("@rpath/"):
+        candidates = [os.path.join(folder, base) for folder in folders]
+        candidates += [os.path.join(folder, "..", "lib", base) for folder in folders]
+        candidates += [os.path.join(prefix, "lib", base) for prefix in HOMEBREW_PREFIXES]
+    else:
+        return None
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return os.path.realpath(candidate)
+    return None
+
+
+def copy_binary(source, destination):
     shutil.copy2(source, destination)
     os.chmod(destination, 0o755)
-    subprocess.run(["codesign", "--remove-signature", destination], check=False)
+
+
+def sign(path):
+    subprocess.check_call(["codesign", "--force", "--sign", "-", path])
 
 
 def bundle(binary, destination_dir, frameworks_dir):
     os.makedirs(destination_dir, exist_ok=True)
     os.makedirs(frameworks_dir, exist_ok=True)
     target = os.path.join(destination_dir, os.path.basename(binary))
-    copy_unsigned(binary, target)
-    pending = [target]
+    copy_binary(binary, target)
+    pending = [(target, binary)]
     seen = set()
     while pending:
-        current = pending.pop()
-        for library in linked_libraries(current):
-            bundled = os.path.join(frameworks_dir, os.path.basename(library))
-            if library not in seen:
-                seen.add(library)
+        current, origin = pending.pop()
+        for name, source in linked_libraries(current, origin):
+            base = os.path.basename(name)
+            bundled = os.path.join(frameworks_dir, base)
+            if base not in seen:
+                seen.add(base)
                 if not os.path.exists(bundled):
-                    copy_unsigned(library, bundled)
-                pending.append(bundled)
-            rewrite(current, library, f"@rpath/{os.path.basename(library)}")
+                    copy_binary(source, bundled)
+                pending.append((bundled, source))
+            rewrite(current, name, f"@rpath/{base}")
     for path in [target, *seen_paths(frameworks_dir)]:
         if path.endswith(".dylib"):
             subprocess.check_call(["install_name_tool", "-id", f"@rpath/{os.path.basename(path)}", path])
             ensure_rpath(path, "@loader_path")
         else:
             ensure_rpath(path, "@executable_path/../Frameworks")
+        sign(path)
 
 
 def seen_paths(frameworks_dir):

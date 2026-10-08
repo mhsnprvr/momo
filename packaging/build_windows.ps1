@@ -27,7 +27,7 @@ function Get-Tool {
     Invoke-WebRequest -Headers $headers -Uri $asset.browser_download_url -OutFile $archive
     $target = Join-Path $downloads $Name
     Remove-Item -Recurse -Force $target -ErrorAction SilentlyContinue
-    Invoke-Checked "7z" @("x", "-y", "-o$target", $archive)
+    Invoke-Checked "7z" @("x", "-y", "-o$target", $archive) | Out-Host
     return $target
 }
 

@@ -6,8 +6,8 @@ summary=$(grep -n -i -E "error|exception|traceback|failed|not found|exited with 
 ending=$(tail -n 40 "$log")
 for part in summary ending; do
     text="${!part}"
-    text="${text//'%'/'%25'}"
+    text="${text//\%/%25}"
     text="${text//$'\r'/}"
-    text="${text//$'\n'/'%0A'}"
+    text="${text//$'\n'/%0A}"
     echo "::error title=Build log ($part)::$text"
 done
