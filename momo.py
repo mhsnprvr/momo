@@ -15,9 +15,10 @@ from pathlib import Path
 
 import sounddevice as sd
 
-from cleaner import SAMPLE_RATE, CrowdCleaner
+from cleaner import LOG_ROOT, NO_WINDOW, SAMPLE_RATE, WINDOWS, CrowdCleaner
 
-LOG_DIR = Path.home() / "Library" / "Logs" / "MoMo"
+LOG_DIR = LOG_ROOT
+UI_FONT = "Segoe UI" if WINDOWS else "Helvetica Neue"
 LEAD_SECONDS = 0.12
 PLAY_OVERLAP = 2
 CLEAN_OVERLAP_MIN = 2
@@ -59,7 +60,8 @@ def app_resource(name):
 
 def tool(name):
     if getattr(sys, "frozen", False):
-        bundled = os.path.join(os.path.dirname(sys.executable), name)
+        executable = name + ".exe" if WINDOWS else name
+        bundled = os.path.join(os.path.dirname(sys.executable), executable)
         if os.path.isfile(bundled):
             return bundled
     found = shutil.which(name)
@@ -69,6 +71,11 @@ def tool(name):
 
 
 def alert(message):
+    if WINDOWS:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(None, str(message), "MoMo", 0x40000)
+        return
     script = f'display dialog {json.dumps(message)} buttons {{"OK"}} default button 1 with title "MoMo"'
     subprocess.run(["osascript", "-e", script], check=False)
 
@@ -98,13 +105,56 @@ def setup_logging():
     )
 
 
+class WindowsPipe:
+    """A named-pipe client that can read on one thread while another writes."""
+
+    def __init__(self, path):
+        import _winapi
+
+        self._winapi = _winapi
+        self._handle = _winapi.CreateFile(
+            path,
+            _winapi.GENERIC_READ | _winapi.GENERIC_WRITE,
+            0,
+            _winapi.NULL,
+            _winapi.OPEN_EXISTING,
+            _winapi.FILE_FLAG_OVERLAPPED,
+            _winapi.NULL,
+        )
+
+    def sendall(self, data):
+        overlapped, _error = self._winapi.WriteFile(self._handle, data, overlapped=True)
+        overlapped.GetOverlappedResult(True)
+
+    def recv(self, size):
+        overlapped, _error = self._winapi.ReadFile(self._handle, size, overlapped=True)
+        _count, error = overlapped.GetOverlappedResult(True)
+        if error == self._winapi.ERROR_OPERATION_ABORTED:
+            return b""
+        return overlapped.getbuffer()
+
+    def close(self):
+        self._winapi.CloseHandle(self._handle)
+
+
+def connect_ipc(path):
+    if WINDOWS:
+        return WindowsPipe(path)
+    connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        connection.connect(path)
+    except OSError:
+        connection.close()
+        raise
+    return connection
+
+
 class Mpv:
     def __init__(self, socket_path):
-        self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         deadline = time.time() + 8
         while True:
             try:
-                self._socket.connect(socket_path)
+                self._socket = connect_ipc(socket_path)
                 break
             except OSError:
                 if time.time() > deadline:
@@ -215,6 +265,8 @@ def applescript_text(text):
 
 
 def ask(message, buttons, default):
+    if WINDOWS:
+        return ask_with_tk(message, buttons, default)
     button_list = ", ".join(json.dumps(button) for button in buttons)
     script = f"""
     try
@@ -225,6 +277,48 @@ def ask(message, buttons, default):
     end try
     """
     return subprocess.check_output(["osascript", "-e", script], text=True).strip()
+
+
+def ask_with_tk(message, buttons, default):
+    import tkinter as tk
+    from tkinter import ttk
+
+    picked = {"value": ""}
+    root = tk.Tk()
+    root.title("MoMo")
+    root.resizable(False, False)
+    root.attributes("-topmost", True)
+    frame = ttk.Frame(root, padding=(22, 18, 22, 16))
+    frame.grid()
+    ttk.Label(frame, text=message, wraplength=420, justify="left").grid(sticky="w")
+    row = ttk.Frame(frame)
+    row.grid(sticky="e", pady=(16, 0))
+
+    def close(value):
+        picked["value"] = value
+        root.destroy()
+
+    focused = None
+    for column, label in enumerate(buttons):
+        button = ttk.Button(
+            row,
+            text=label,
+            default="active" if label == default else "normal",
+            command=lambda label=label: close(label),
+        )
+        button.grid(row=0, column=column, padx=(8 if column else 0, 0))
+        if label == default:
+            focused = button
+    root.bind("<Return>", lambda _event: close(default))
+    root.bind("<Escape>", lambda _event: close(""))
+    root.protocol("WM_DELETE_WINDOW", lambda: close(""))
+    root.update_idletasks()
+    root.geometry(f"+{(root.winfo_screenwidth() - root.winfo_width()) // 2}+{(root.winfo_screenheight() - root.winfo_height()) // 3}")
+    root.lift()
+    if focused is not None:
+        focused.focus_force()
+    root.mainloop()
+    return picked["value"]
 
 
 def choose_clean_overlap():
@@ -240,7 +334,7 @@ def choose_clean_overlap():
     frame = ttk.Frame(root, padding=(22, 18, 22, 16))
     frame.grid()
 
-    ttk.Label(frame, text="How smooth should it sound?", font=("Helvetica Neue", 16, "bold")).grid(sticky="w")
+    ttk.Label(frame, text="How smooth should it sound?", font=(UI_FONT, 16, "bold")).grid(sticky="w")
     ttk.Label(
         frame,
         text="Drag left to finish sooner. Drag right for a smoother sound.",
@@ -358,11 +452,15 @@ def run(video_path):
     stream.start()
 
     socket_dir = tempfile.mkdtemp(prefix="momo-")
-    socket_path = os.path.join(socket_dir, "mpv.sock")
+    if WINDOWS:
+        socket_path = rf"\\.\pipe\{os.path.basename(socket_dir)}"
+    else:
+        socket_path = os.path.join(socket_dir, "mpv.sock")
     toggle_path = Path(socket_dir) / "toggle"
     toggle_path.write_text("")
     environment = os.environ.copy()
     environment["MOMO_TOGGLE"] = str(toggle_path)
+    platform_options = [] if WINDOWS else ["--macos-app-activation-policy=accessory"]
     process = subprocess.Popen(
         [
             mpv_bin,
@@ -375,8 +473,8 @@ def run(video_path):
             "--keep-open=no",
             "--hwdec=auto",
             "--ontop=yes",
-            "--macos-app-activation-policy=accessory",
-            "--osd-font=Helvetica Neue",
+            *platform_options,
+            f"--osd-font={UI_FONT}",
             "--osd-font-size=26",
             "--osd-border-size=1.2",
             "--osd-border-color=#B0000000",
@@ -570,7 +668,12 @@ def save_cleaned_video(ffmpeg, source, pcm_path, destination, sample_rate, shoul
 
     def run_command(include_subtitles):
         with open(log_path, "w", encoding="utf-8") as stderr:
-            process = subprocess.Popen(command(include_subtitles), stdout=subprocess.DEVNULL, stderr=stderr)
+            process = subprocess.Popen(
+                command(include_subtitles),
+                stdout=subprocess.DEVNULL,
+                stderr=stderr,
+                creationflags=NO_WINDOW,
+            )
             while process.poll() is None:
                 if should_stop():
                     process.terminate()
@@ -647,7 +750,7 @@ def export_videos(paths):
     root.rowconfigure(0, weight=1)
     frame.columnconfigure(0, weight=1)
 
-    ttk.Label(frame, text="Clean these videos", font=("Helvetica Neue", 16, "bold")).grid(sticky="w")
+    ttk.Label(frame, text="Clean these videos", font=(UI_FONT, 16, "bold")).grid(sticky="w")
     ttk.Label(
         frame,
         text="Each video is saved next to the original, with no_crowd_ added to the name. An existing copy is replaced. Videos are cleaned one at a time.",
@@ -698,7 +801,8 @@ def export_videos(paths):
 
     rows.bind("<Configure>", fit_rows)
     canvas.bind("<Configure>", fit_rows)
-    canvas.bind("<MouseWheel>", lambda event: canvas.yview_scroll(-event.delta, "units"))
+    wheel_step = 120 if WINDOWS else 1
+    canvas.bind("<MouseWheel>", lambda event: canvas.yview_scroll(-int(event.delta / wheel_step), "units"))
     rows.columnconfigure(0, weight=1)
 
     row_bars = []
@@ -894,6 +998,10 @@ def videos_from_arguments(arguments):
 
 
 def main():
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w")
     setup_logging()
     try:
         videos = videos_from_arguments(sys.argv[1:])

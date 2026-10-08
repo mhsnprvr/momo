@@ -1,0 +1,121 @@
+name: Build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.13"
+  MODEL_CACHE_KEY: mel_band_roformer_crowd_aufr33_viperx_sdr_8.7144-v1
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set version
+        run: echo "MOMO_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+        if: startsWith(github.ref, 'refs/tags/v')
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install ffmpeg and mpv
+        run: brew install ffmpeg mpv
+
+      - name: Restore crowd model
+        uses: actions/cache@v4
+        with:
+          path: packaging/models
+          key: model-${{ runner.os }}-${{ env.MODEL_CACHE_KEY }}
+
+      - name: Install Python packages
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt
+
+      - name: Build DMG
+        run: ./packaging/build_dmg.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MoMo-macOS
+          path: dist/MoMo.dmg
+          compression-level: 0
+          retention-days: 7
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set version
+        shell: bash
+        run: echo "MOMO_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+        if: startsWith(github.ref, 'refs/tags/v')
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Restore crowd model
+        uses: actions/cache@v4
+        with:
+          path: packaging/models
+          key: model-${{ runner.os }}-${{ env.MODEL_CACHE_KEY }}
+
+      - name: Install Python packages
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python.exe -m pip install --upgrade pip
+          .venv\Scripts\python.exe -m pip install -r requirements.txt
+
+      - name: Build installer
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./packaging/build_windows.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MoMo-Windows
+          path: dist/MoMo-Setup.exe
+          compression-level: 0
+          retention-days: 7
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "MoMo $GITHUB_REF_NAME" \
+            --generate-notes \
+            artifacts/MoMo.dmg artifacts/MoMo-Setup.exe

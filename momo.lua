@@ -1,4 +1,4 @@
-local FONT = "Helvetica Neue"
+local FONT = package.config:sub(1, 1) == "\\" and "Segoe UI" or "Helvetica Neue"
 local CARD = "&H2A1D1B&"
 local TRACK = "&H4A3633&"
 local CORAL = "&H667AFF&"

@@ -1,5 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+import sys
+
 from PyInstaller.utils.hooks import collect_all
+
+version = os.environ.get("MOMO_VERSION", "1.0.0")
+windows = sys.platform == "win32"
 
 datas = [("../momo.lua", "."), ("models", "models")]
 binaries = []
@@ -35,6 +41,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
+    icon="MoMo.ico" if windows else None,
 )
 coll = COLLECT(
     exe,
@@ -44,24 +51,25 @@ coll = COLLECT(
     upx=False,
     name="MoMo",
 )
-app = BUNDLE(
-    coll,
-    name="MoMo.app",
-    icon="MoMo.icns",
-    bundle_identifier="com.momo.player",
-    info_plist={
-        "CFBundleName": "MoMo",
-        "CFBundleDisplayName": "MoMo",
-        "CFBundleIconFile": "MoMo",
-        "CFBundleShortVersionString": "1.0.0",
-        "NSHighResolutionCapable": True,
-        "CFBundleDocumentTypes": [
-            {
-                "CFBundleTypeName": "Video",
-                "CFBundleTypeRole": "Viewer",
-                "CFBundleTypeExtensions": ["mkv", "mp4"],
-                "LSHandlerRank": "Alternate",
-            }
-        ],
-    },
-)
+if not windows:
+    app = BUNDLE(
+        coll,
+        name="MoMo.app",
+        icon="MoMo.icns",
+        bundle_identifier="com.momo.player",
+        info_plist={
+            "CFBundleName": "MoMo",
+            "CFBundleDisplayName": "MoMo",
+            "CFBundleIconFile": "MoMo",
+            "CFBundleShortVersionString": version,
+            "NSHighResolutionCapable": True,
+            "CFBundleDocumentTypes": [
+                {
+                    "CFBundleTypeName": "Video",
+                    "CFBundleTypeRole": "Viewer",
+                    "CFBundleTypeExtensions": ["mkv", "mp4"],
+                    "LSHandlerRank": "Alternate",
+                }
+            ],
+        },
+    )

@@ -8,9 +8,13 @@ It's not perfect yet, but I'm trying.
 
 ## Install
 
-Open `dist/MoMo.dmg`, drag MoMo to Applications, and replace the old copy if one is already there.
+Download the latest build from the [Releases](https://github.com/mhsnprvr/momo/releases) page.
+
+**Mac:** open `MoMo.dmg`, drag MoMo to Applications, and replace the old copy if one is already there.
 
 The app is not signed with an Apple certificate. The first time you open it, macOS will act like you have invited a stranger in. Right-click MoMo, choose Open, and confirm. After that it opens like a normal app.
+
+**Windows:** run `MoMo-Setup.exe`. The installer is not signed either, so Windows may say it protected your PC. Click **More info**, then **Run anyway**. MoMo then shows up in the Start menu and under **Open with** for MKV and MP4 files. To clean a pile of videos at once, select them all and drag them onto the MoMo shortcut.
 
 ## Watch one episode
 
@@ -41,7 +45,9 @@ An existing `no_crowd_` copy is replaced. Each row has its own progress bar and 
 
 ## Build it yourself
 
-On a Mac, with [ffmpeg](https://ffmpeg.org/) and [mpv](https://mpv.io/) installed:
+Pushing a tag like `v1.0.1` makes GitHub Actions build the Mac and Windows versions and attach both to a new release. You can also start the build from the Actions tab and download the results there.
+
+To build locally on a Mac, with [ffmpeg](https://ffmpeg.org/) and [mpv](https://mpv.io/) installed:
 
 ```bash
 python3 -m venv .venv
@@ -50,3 +56,13 @@ python3 -m venv .venv
 ```
 
 The installer is written to `dist/MoMo.dmg`. The crowd model is packed inside the app, so the first launch does not have to download it.
+
+On Windows, install [Inno Setup](https://jrsoftware.org/isinfo.php) and [7-Zip](https://www.7-zip.org/), then in PowerShell:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\packaging\build_windows.ps1
+```
+
+The script downloads mpv and ffmpeg itself and writes the installer to `dist\MoMo-Setup.exe`.

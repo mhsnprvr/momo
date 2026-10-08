@@ -24,6 +24,18 @@ SAMPLE_RATE = 44100
 CHUNK_SECONDS = 20
 OVERLAP_SECONDS = 2
 HOP_SECONDS = CHUNK_SECONDS - OVERLAP_SECONDS
+WINDOWS = sys.platform == "win32"
+NO_WINDOW = subprocess.CREATE_NO_WINDOW if WINDOWS else 0
+
+if WINDOWS:
+    _LOCAL = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "MoMo"
+    SUPPORT_ROOT = _LOCAL
+    CACHE_ROOT = _LOCAL / "Cache"
+    LOG_ROOT = _LOCAL / "Logs"
+else:
+    SUPPORT_ROOT = Path.home() / "Library" / "Application Support" / "MoMo"
+    CACHE_ROOT = Path.home() / "Library" / "Caches" / "MoMo"
+    LOG_ROOT = Path.home() / "Library" / "Logs" / "MoMo"
 
 log = logging.getLogger("momo.cleaner")
 
@@ -44,6 +56,7 @@ def ensure_model_file(directory):
         result = subprocess.run(
             ["curl", "-L", "--fail", "--retry", "3", "--continue-at", "-", "-o", str(partial), url],
             check=False,
+            creationflags=NO_WINDOW,
         )
         if result.returncode == 0 and partial.exists() and partial.stat().st_size >= MODEL_MIN_BYTES:
             partial.replace(destination)
@@ -53,7 +66,7 @@ def ensure_model_file(directory):
 
 
 def support_dir():
-    path = Path.home() / "Library" / "Application Support" / "MoMo"
+    path = SUPPORT_ROOT
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -73,7 +86,7 @@ def cache_dir_for(video_path, model_overlap):
     stat = os.stat(video_path)
     identity = f"{Path(video_path).resolve()}|{stat.st_size}|{stat.st_mtime_ns}|{MODEL_FILENAME}|{CHUNK_SECONDS}|{OVERLAP_SECONDS}|{model_overlap}"
     digest = hashlib.sha256(identity.encode()).hexdigest()[:24]
-    path = Path.home() / "Library" / "Caches" / "MoMo" / digest
+    path = CACHE_ROOT / digest
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -288,6 +301,7 @@ class CrowdCleaner:
             ],
             capture_output=True,
             text=True,
+            creationflags=NO_WINDOW,
         )
         if result.returncode != 0 or not temporary.exists():
             detail = (result.stderr or "").strip().splitlines()
@@ -335,6 +349,7 @@ class CrowdCleaner:
             output_format="WAV",
             output_single_stem="other",
             sample_rate=self.sample_rate,
+            use_soundfile=WINDOWS,
             mdxc_params={
                 "segment_size": 256,
                 "override_model_segment_size": False,
@@ -415,6 +430,7 @@ class CrowdCleaner:
             ],
             capture_output=True,
             text=True,
+            creationflags=NO_WINDOW,
         )
         if result.returncode != 0:
             raise RuntimeError("Could not read a section of the audio.")
