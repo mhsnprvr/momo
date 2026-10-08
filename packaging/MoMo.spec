@@ -41,7 +41,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
-    icon="MoMo.ico" if windows else None,
+    icon=os.path.join(SPECPATH, "MoMo.ico") if windows else None,
 )
 coll = COLLECT(
     exe,
@@ -55,7 +55,7 @@ if not windows:
     app = BUNDLE(
         coll,
         name="MoMo.app",
-        icon="MoMo.icns",
+        icon=os.path.join(SPECPATH, "MoMo.icns"),
         bundle_identifier="com.momo.player",
         info_plist={
             "CFBundleName": "MoMo",

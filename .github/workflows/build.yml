@@ -48,7 +48,13 @@ jobs:
           .venv/bin/pip install -r requirements.txt
 
       - name: Build DMG
-        run: ./packaging/build_dmg.sh
+        run: |
+          ./packaging/build_dmg.sh 2>&1 | tee build.log
+          exit "${PIPESTATUS[0]}"
+
+      - name: Report build error
+        if: failure()
+        run: ./.github/report_error.sh build.log
 
       - uses: actions/upload-artifact@v4
         with:
@@ -93,10 +99,17 @@ jobs:
           .venv\Scripts\python.exe -m pip install -r requirements.txt
 
       - name: Build installer
-        shell: pwsh
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: ./packaging/build_windows.ps1
+        run: |
+          pwsh -NoProfile -File packaging/build_windows.ps1 2>&1 | tee build.log
+          exit "${PIPESTATUS[0]}"
+
+      - name: Report build error
+        if: failure()
+        shell: bash
+        run: ./.github/report_error.sh build.log
 
       - uses: actions/upload-artifact@v4
         with:
