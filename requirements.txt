@@ -1,0 +1,5 @@
+audio-separator[cpu]==0.47.0
+audioread==3.1.0
+numpy==2.5.3
+sounddevice==0.5.6
+soundfile==0.14.0
