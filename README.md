@@ -18,7 +18,7 @@ The app is not signed with an Apple certificate. The first time you open it, mac
 
 ## Watch one episode
 
-Open a video, or drop one on MoMo.
+Open a video with MoMo. Or start MoMo on its own: it opens an empty player. Drop a video on it, or click **Choose videos**.
 
 **Play now** starts in a few seconds. The sound is a little rougher. You may hear a faint seam, or a bit of crowd on a long laugh. Good when you just want the episode to start.
 
@@ -33,7 +33,7 @@ While it cleans, a card in the middle of the picture shows how far along it is. 
 
 ## Clean a pile of them
 
-Select more than one MKV or MP4. MoMo opens a list instead of the player.
+Select more than one MKV or MP4, or drop several on the empty player. MoMo opens a list instead of the player.
 
 The slider starts at **Faster**. Drag it toward **Smoothest** if you want the better pass and you are willing to wait. Press **OK**.
 

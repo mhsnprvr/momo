@@ -15,9 +15,11 @@ local progress = {
     started = mp.get_time(),
 }
 local badge = { visible = false, text = "", on = true, until_time = 0 }
+local empty = { visible = false, hover = false, button = nil }
 
 local card_overlay = mp.create_osd_overlay("ass-events")
 local badge_overlay = mp.create_osd_overlay("ass-events")
+local empty_overlay = mp.create_osd_overlay("ass-events")
 local timer
 
 local function clean(text)
@@ -43,6 +45,10 @@ end
 
 local function shape(path, color, alpha, extra)
     return string.format("{\\an7\\pos(0,0)\\bord0\\shad0%s\\1c%s\\1a&H%02X&\\p1}%s{\\p0}", extra or "", color, alpha, path)
+end
+
+local function outline(path, color, alpha, width)
+    return string.format("{\\an7\\pos(0,0)\\bord%.1f\\shad0\\3c%s\\3a&H%02X&\\1a&HFF&\\p1}%s{\\p0}", width, color, alpha, path)
 end
 
 local function text(x, y, align, size, color, bold, value)
@@ -121,6 +127,79 @@ local function render_badge()
     badge_overlay:update()
 end
 
+local function render_empty()
+    if not empty.visible then
+        empty.button = nil
+        empty_overlay:remove()
+        return
+    end
+    local w, h, s = screen()
+    local zw = math.min(640 * s, w - 48 * s)
+    local zh = math.min(340 * s, h - 48 * s)
+    local zx, zy = (w - zw) / 2, (h - zh) / 2
+    local bw, bh = 240 * s, 54 * s
+    local bx, by = (w - bw) / 2, zy + zh - bh - 44 * s
+    local cx = w / 2
+    local events = {
+        shape(rounded(zx, zy, zw, zh, 28 * s), CARD, 0x30),
+        outline(rounded(zx, zy, zw, zh, 28 * s), MUTED, 0x90, 2 * s),
+        shape(rounded(cx - 26 * s, zy + 44 * s, 52 * s, 52 * s, 26 * s), CORAL, 0x00),
+        shape(rounded(cx - 13 * s, zy + 68 * s, 26 * s, 4 * s, 2 * s), WHITE, 0x00),
+        shape(rounded(cx - 2 * s, zy + 57 * s, 4 * s, 26 * s, 2 * s), WHITE, 0x00),
+        text(cx, zy + 136 * s, 5, 30 * s, WHITE, true, "Drop videos here"),
+        text(cx, zy + 174 * s, 5, 18 * s, MUTED, false, "MKV or MP4. One to watch, several to clean."),
+        shape(rounded(bx, by, bw, bh, bh / 2), empty.hover and CORAL_LIGHT or CORAL, 0x00),
+        text(cx, by + bh / 2, 5, 21 * s, WHITE, true, "Choose videos"),
+    }
+    empty.button = { x = bx, y = by, w = bw, h = bh }
+    empty_overlay.res_x, empty_overlay.res_y = w, h
+    empty_overlay.z = 5
+    empty_overlay.data = table.concat(events, "\n")
+    empty_overlay:update()
+end
+
+local function over_button()
+    local mouse = mp.get_property_native("mouse-pos")
+    local b = empty.button
+    if not mouse or not b then
+        return false
+    end
+    return mouse.x >= b.x and mouse.x <= b.x + b.w and mouse.y >= b.y and mouse.y <= b.y + b.h
+end
+
+local function pick()
+    mp.commandv("script-message", "momo-pick")
+end
+
+local function click()
+    if over_button() then
+        pick()
+    end
+end
+
+mp.observe_property("idle-active", "bool", function(_, idle)
+    empty.visible = idle == true
+    if empty.visible then
+        mp.add_forced_key_binding("MBTN_LEFT", "momo-empty-click", click)
+        mp.add_forced_key_binding("ENTER", "momo-empty-enter", pick)
+    else
+        mp.remove_key_binding("momo-empty-click")
+        mp.remove_key_binding("momo-empty-enter")
+    end
+    render_empty()
+end)
+
+mp.observe_property("mouse-pos", "native", function()
+    if not empty.visible then
+        return
+    end
+    local hover = over_button()
+    if hover ~= empty.hover then
+        empty.hover = hover
+        render_empty()
+    end
+end)
+
 local function tick()
     local animating = false
     if progress.visible then
@@ -184,6 +263,7 @@ end)
 mp.observe_property("osd-dimensions", "native", function()
     render_card()
     render_badge()
+    render_empty()
 end)
 
 local function toggle()

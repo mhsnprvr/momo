@@ -47,6 +47,7 @@ OSC_OPTIONS = ",".join(
         "osc-vidscale=no",
         "osc-deadzonesize=0.75",
         "osc-timetotal=yes",
+        "osc-idlescreen=no",
         "osc-title=MoMo   ·   press L for original sound",
     ]
 )
@@ -164,6 +165,7 @@ class Mpv:
         self._pending = {}
         self._next_id = 1
         self._buffer = b""
+        self._events = []
         self._closed = False
         threading.Thread(target=self._read_loop, name="momo-mpv", daemon=True).start()
 
@@ -203,6 +205,9 @@ class Mpv:
                     continue
                 request_id = message.get("request_id")
                 if request_id is None:
+                    if "event" in message:
+                        with self._lock:
+                            self._events = self._events[-99:] + [message]
                     continue
                 with self._lock:
                     pending = self._pending.pop(request_id, None)
@@ -210,6 +215,11 @@ class Mpv:
                     waiting, box = pending
                     box.update(message)
                     waiting.set()
+
+    def take_events(self):
+        with self._lock:
+            events, self._events = self._events, []
+        return events
 
     def close(self):
         self._closed = True
@@ -413,8 +423,45 @@ def toggle_count(path):
         return 0
 
 
-def run(video_path):
-    video_path = os.path.abspath(video_path)
+def wait_for_videos(mpv, process):
+    """Wait on the empty player until videos are dropped on it or picked with its button."""
+    def loaded_path():
+        try:
+            return mpv.command("get_property", "path")
+        except Exception:
+            return None
+
+    while process.poll() is None:
+        chosen = None
+        for event in mpv.take_events():
+            if event.get("event") == "client-message" and event.get("args") == ["momo-pick"]:
+                chosen = choose_videos()
+        if chosen is None:
+            loaded = loaded_path()
+            if loaded:
+                time.sleep(0.4)
+                playlist = mpv.command("get_property", "playlist") or []
+                chosen = [entry["filename"] for entry in playlist if entry.get("filename")] or [loaded]
+        if chosen:
+            videos = usable_videos(chosen)
+            if len(videos) == 1:
+                mpv.command("loadfile", videos[0], "replace")
+                deadline = time.time() + 8
+                while time.time() < deadline and not loaded_path():
+                    time.sleep(0.05)
+                return videos
+            if videos:
+                return videos
+            mpv.command("stop")
+        time.sleep(0.1)
+    return []
+
+
+def run(video_path=None):
+    """Play one video. Without one, show an empty player and return any pile of videos dropped on it."""
+    empty_start = video_path is None
+    if video_path is not None:
+        video_path = os.path.abspath(video_path)
     ffmpeg = tool("ffmpeg")
     mpv_bin = tool("mpv")
     clock = AudioClock()
@@ -461,6 +508,7 @@ def run(video_path):
     environment = os.environ.copy()
     environment["MOMO_TOGGLE"] = str(toggle_path)
     platform_options = [] if WINDOWS else ["--macos-app-activation-policy=accessory"]
+    start_options = ["--idle=yes", "--ontop=no"] if empty_start else ["--ontop=yes", video_path]
     process = subprocess.Popen(
         [
             mpv_bin,
@@ -472,7 +520,6 @@ def run(video_path):
             "--mute=yes",
             "--keep-open=no",
             "--hwdec=auto",
-            "--ontop=yes",
             *platform_options,
             f"--osd-font={UI_FONT}",
             "--osd-font-size=26",
@@ -484,7 +531,7 @@ def run(video_path):
             f"--script-opts={OSC_OPTIONS}",
             f"--input-ipc-server={socket_path}",
             f"--script={app_resource('momo.lua')}",
-            video_path,
+            *start_options,
         ],
         env=environment,
     )
@@ -500,6 +547,14 @@ def run(video_path):
 
     atexit.register(shutdown)
     mpv = Mpv(socket_path)
+    if empty_start:
+        videos = wait_for_videos(mpv, process)
+        if len(videos) != 1:
+            if process.poll() is None:
+                mpv.command("quit")
+            mpv.close()
+            return videos
+        video_path = videos[0]
     try:
         mpv.command("set_property", "ontop", False)
     except Exception:
@@ -552,6 +607,9 @@ def run(video_path):
 
     while process.poll() is None:
         try:
+            if empty_start and mpv.command("get_property", "idle-active"):
+                mpv.command("quit")
+                break
             position = mpv.command("get_property", "time-pos")
             paused = bool(mpv.command("get_property", "pause"))
         except Exception:
@@ -978,15 +1036,10 @@ def export_videos(paths):
     root.mainloop()
 
 
-def videos_from_arguments(arguments):
-    supplied = [argument for argument in arguments if not argument.startswith("-")]
-    if not supplied:
-        chosen = choose_videos()
-    else:
-        chosen = supplied
+def usable_videos(paths):
     videos = []
     skipped = False
-    for argument in chosen:
+    for argument in paths:
         path = Path(argument)
         if path.suffix.lower() not in VIDEO_SUFFIXES or not path.is_file():
             skipped = True
@@ -1004,11 +1057,17 @@ def main():
         sys.stderr = open(os.devnull, "w")
     setup_logging()
     try:
-        videos = videos_from_arguments(sys.argv[1:])
-        if len(videos) == 1:
-            run(videos[0])
-        elif len(videos) > 1:
-            export_videos(videos)
+        supplied = [argument for argument in sys.argv[1:] if not argument.startswith("-")]
+        if supplied:
+            videos = usable_videos(supplied)
+            if len(videos) == 1:
+                run(videos[0])
+            elif len(videos) > 1:
+                export_videos(videos)
+        else:
+            dropped = run() or []
+            if len(dropped) > 1:
+                export_videos(dropped)
     except Exception as error:
         logging.exception("MoMo failed")
         alert(str(error))
