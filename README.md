@@ -16,6 +16,17 @@ The app is not signed with an Apple certificate. The first time you open it, mac
 
 **Windows:** run `MoMo-Setup.exe`. The installer is not signed either, so Windows may say it protected your PC. Click **More info**, then **Run anyway**. MoMo then shows up in the Start menu and under **Open with** for MKV and MP4 files. To clean a pile of videos at once, select them all and drag them onto the MoMo shortcut.
 
+### Why is it so big?
+
+The download is about 1.2 GB, and MoMo takes about 1.8 GB once installed. That is a lot for a video player, but almost none of it is the player:
+
+- **The crowd model, about 870 MB.** This is the trained network that tells laughter apart from everything else. It is packed in so MoMo works offline and the first episode does not start with a 900 MB download.
+- **PyTorch, about 400 MB.** The engine that runs the model on your computer.
+- **Other audio and maths libraries, about 300 MB.** These include ONNX Runtime, LLVM (for numba), SciPy, and NumPy, which the separation code depends on.
+- **The rest, about 150 MB.** Python itself, plus mpv and ffmpeg, which play the video and read its sound.
+
+All of it stays on your machine. Nothing is uploaded to clean an episode.
+
 ## Watch one episode
 
 Open a video with MoMo. Or start MoMo on its own: it opens an empty player. Drop a video on it, or click **Choose videos**.
